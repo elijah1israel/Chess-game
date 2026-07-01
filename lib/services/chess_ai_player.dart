@@ -132,7 +132,7 @@ class ChessAiPlayer {
 
     // Try each whitespace-separated token
     for (final tokenRaw in text.split(RegExp(r'\s+'))) {
-      final token = tokenRaw.replaceAll(RegExp(r'[.,;:!?"\']+$'), '').trim();
+      final token = tokenRaw.replaceAll(RegExp("[.,;:!?\"']+\$"), '').trim();
       if (token.isEmpty) continue;
 
       // Exact UCI match
