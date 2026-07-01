@@ -1,10 +1,10 @@
 import 'package:chess/chess.dart' as ch;
 import 'package:flutter/material.dart';
-import 'package:flutter_chess_board/flutter_chess_board.dart';
 
 import '../models/ai_model.dart';
 import '../services/chess_ai_player.dart';
 import '../services/openrouter_service.dart';
+import '../widgets/chess_board_widget.dart';
 
 class GameScreen extends StatefulWidget {
   final String apiKey;
@@ -41,8 +41,7 @@ class _MoveEntry {
 }
 
 class _GameScreenState extends State<GameScreen> {
-  late final OpenRouterService _service =
-      OpenRouterService(widget.apiKey);
+  late final OpenRouterService _service = OpenRouterService(widget.apiKey);
   late final ChessAiPlayer _whitePlayer = ChessAiPlayer(
     service: _service,
     modelId: widget.whiteModel.id,
@@ -53,7 +52,6 @@ class _GameScreenState extends State<GameScreen> {
   );
 
   final ch.Chess _game = ch.Chess();
-  final ChessBoardController _boardController = ChessBoardController();
   final List<_MoveEntry> _log = [];
   final ScrollController _logScroll = ScrollController();
 
@@ -61,17 +59,11 @@ class _GameScreenState extends State<GameScreen> {
   bool _paused = false;
   String? _error;
   String _status = 'Ready.';
-
-  @override
-  void initState() {
-    super.initState();
-    _boardController.loadFen(_game.fen);
-  }
+  LastMove? _lastMove;
 
   @override
   void dispose() {
     _service.close();
-    _boardController.dispose();
     _logScroll.dispose();
     super.dispose();
   }
@@ -90,7 +82,9 @@ class _GameScreenState extends State<GameScreen> {
         final modelName =
             whiteToMove ? widget.whiteModel.name : widget.blackModel.name;
 
-        setState(() => _status = '$modelName thinking…');
+        if (mounted) {
+          setState(() => _status = '$modelName thinking…');
+        }
 
         final result = await player.chooseMove(_game);
 
@@ -103,14 +97,14 @@ class _GameScreenState extends State<GameScreen> {
           fallback: result.wasFallback,
           modelName: modelName,
         ));
-        _boardController.loadFen(_game.fen);
+        _lastMove = LastMove.fromGame(_game);
         if (mounted) {
           setState(() => _status = _liveStatus());
         }
         _scrollLogToEnd();
       }
     } catch (e) {
-      setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = e.toString());
     } finally {
       if (mounted) {
         setState(() {
@@ -131,8 +125,8 @@ class _GameScreenState extends State<GameScreen> {
   void _reset() {
     setState(() {
       _game.reset();
-      _boardController.loadFen(_game.fen);
       _log.clear();
+      _lastMove = null;
       _error = null;
       _paused = false;
       _running = false;
@@ -152,7 +146,8 @@ class _GameScreenState extends State<GameScreen> {
     if (_game.in_draw) return 'Draw.';
     if (_paused) return 'Paused.';
     if (_running) return 'Running…';
-    return 'Ready.';
+    if (_log.isNotEmpty) return 'Ready.';
+    return 'Tap Play to start.';
   }
 
   void _scrollLogToEnd() {
@@ -181,76 +176,136 @@ class _GameScreenState extends State<GameScreen> {
           ),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _playerBadge('Black', widget.blackModel, _game.turn == ch.Color.BLACK),
-            const SizedBox(height: 8),
-            Center(
-              child: ChessBoard(
-                controller: _boardController,
-                boardColor: BoardColor.brown,
-                boardOrientation: PlayerColor.white,
-                enableUserMoves: false,
-              ),
-            ),
-            const SizedBox(height: 8),
-            _playerBadge('White', widget.whiteModel, _game.turn == ch.Color.WHITE),
-            const SizedBox(height: 8),
-            Text(_status, textAlign: TextAlign.center),
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(
-                  _error!,
-                  style: const TextStyle(color: Colors.redAccent),
-                  textAlign: TextAlign.center,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _playerBadge('Black', widget.blackModel,
+                  _game.turn == ch.Color.BLACK && _running),
+              const SizedBox(height: 10),
+              Center(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final size = constraints.maxWidth.clamp(0.0, 480.0);
+                    return SizedBox(
+                      width: size,
+                      height: size,
+                      child: ChessBoardWidget(
+                        fen: _game.fen,
+                        lastMoveFromSquare: _lastMove?.from,
+                        lastMoveToSquare: _lastMove?.to,
+                      ),
+                    );
+                  },
                 ),
               ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                FilledButton.icon(
-                  icon: Icon(_running ? Icons.pause : Icons.play_arrow),
-                  label: Text(_running ? 'Pause' : (gameOver ? 'Game over' : 'Play')),
-                  onPressed: gameOver
-                      ? null
-                      : (_running ? _pause : _startLoop),
+              const SizedBox(height: 10),
+              _playerBadge('White', widget.whiteModel,
+                  _game.turn == ch.Color.WHITE && _running),
+              const SizedBox(height: 8),
+              Text(
+                _status,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontWeight: FontWeight.w500),
+              ),
+              if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    _error!,
+                    style: const TextStyle(color: Colors.redAccent),
+                    textAlign: TextAlign.center,
+                  ),
                 ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Expanded(child: _moveLog()),
-          ],
+              const SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  FilledButton.icon(
+                    icon: Icon(_running ? Icons.pause : Icons.play_arrow),
+                    label: Text(_running
+                        ? 'Pause'
+                        : (gameOver ? 'Game over' : 'Play')),
+                    onPressed:
+                        gameOver ? null : (_running ? _pause : _startLoop),
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 24, vertical: 14),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Expanded(child: _moveLog()),
+            ],
+          ),
         ),
       ),
     );
   }
 
   Widget _playerBadge(String label, AiModel model, bool active) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    final scheme = Theme.of(context).colorScheme;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: active
-            ? Theme.of(context).colorScheme.primaryContainer
-            : Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
+        gradient: LinearGradient(
+          colors: active
+              ? [scheme.primary.withOpacity(0.85), scheme.primaryContainer]
+              : [scheme.surfaceContainerHighest, scheme.surfaceContainer],
+        ),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: active ? scheme.primary : Colors.transparent,
+          width: 1.5,
+        ),
       ),
       child: Row(
         children: [
-          Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(width: 8),
-          Expanded(
+          CircleAvatar(
+            radius: 12,
+            backgroundColor:
+                label == 'White' ? Colors.white : Colors.black,
             child: Text(
-              model.name,
-              overflow: TextOverflow.ellipsis,
+              label[0],
+              style: TextStyle(
+                color: label == 'White' ? Colors.black : Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                Text(
+                  model.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13),
+                ),
+              ],
             ),
           ),
           if (active)
-            const Icon(Icons.circle, size: 10, color: Colors.greenAccent),
+            const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
         ],
       ),
     );
@@ -263,16 +318,28 @@ class _GameScreenState extends State<GameScreen> {
       );
     }
     return Card(
-      child: ListView.builder(
+      margin: EdgeInsets.zero,
+      child: ListView.separated(
         controller: _logScroll,
         itemCount: _log.length,
+        separatorBuilder: (_, __) =>
+            const Divider(height: 1, thickness: 0.5),
         itemBuilder: (context, i) {
           final e = _log[i];
           final prefix = e.white ? '${e.moveNumber}.' : '${e.moveNumber}...';
           return ListTile(
             dense: true,
-            leading: Text(prefix),
-            title: Text('${e.san}  (${e.uci})'),
+            leading: SizedBox(
+              width: 36,
+              child: Text(prefix,
+                  style: const TextStyle(fontFeatures: [
+                    FontFeature.tabularFigures(),
+                  ])),
+            ),
+            title: Text(
+              '${e.san}  (${e.uci})',
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
             subtitle: Text(e.modelName),
             trailing: e.fallback
                 ? const Tooltip(

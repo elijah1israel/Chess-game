@@ -44,16 +44,38 @@ jobs:
             --org=com.aichess.arena \
             .
 
+      - name: Ensure INTERNET permission in AndroidManifest.xml
+        run: |
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          if ! grep -q 'android.permission.INTERNET' "$MANIFEST"; then
+            # Insert the uses-permission element right after the opening <manifest ...>
+            python3 - "$MANIFEST" <<'PY'
+          import re, sys
+          path = sys.argv[1]
+          with open(path, 'r', encoding='utf-8') as f:
+              xml = f.read()
+          perm = '\n    <uses-permission android:name="android.permission.INTERNET"/>'
+          new = re.sub(r'(<manifest\b[^>]*>)', r'\1' + perm, xml, count=1)
+          with open(path, 'w', encoding='utf-8') as f:
+              f.write(new)
+          PY
+          fi
+          echo '--- AndroidManifest.xml (release) ---'
+          cat "$MANIFEST"
+
       - name: Install dependencies
         run: flutter pub get
+
+      - name: Generate launcher icons
+        run: dart run flutter_launcher_icons
 
       - name: Analyze
         run: flutter analyze --no-fatal-infos --no-fatal-warnings || true
 
-      - name: Build release APK
+      - name: Build release APK (split per ABI)
         run: flutter build apk --release --split-per-abi
 
-      - name: Build universal APK
+      - name: Build release APK (universal)
         run: flutter build apk --release
 
       - name: Upload split APKs
