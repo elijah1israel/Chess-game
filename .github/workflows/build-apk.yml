@@ -44,22 +44,27 @@ jobs:
             --org=com.aichess.arena \
             .
 
-      - name: Ensure INTERNET permission in AndroidManifest.xml
+      - name: Patch AndroidManifest.xml (INTERNET permission, app label)
         run: |
           MANIFEST=android/app/src/main/AndroidManifest.xml
-          if ! grep -q 'android.permission.INTERNET' "$MANIFEST"; then
-            # Insert the uses-permission element right after the opening <manifest ...>
-            python3 - "$MANIFEST" <<'PY'
+          python3 - "$MANIFEST" <<'PY'
           import re, sys
           path = sys.argv[1]
           with open(path, 'r', encoding='utf-8') as f:
               xml = f.read()
-          perm = '\n    <uses-permission android:name="android.permission.INTERNET"/>'
-          new = re.sub(r'(<manifest\b[^>]*>)', r'\1' + perm, xml, count=1)
+          if 'android.permission.INTERNET' not in xml:
+              perm = '\n    <uses-permission android:name="android.permission.INTERNET"/>'
+              xml = re.sub(r'(<manifest\b[^>]*>)', r'\1' + perm, xml, count=1)
+          # Force the launcher label to the display name
+          xml = re.sub(
+              r'android:label="[^"]*"',
+              'android:label="Chess Arena"',
+              xml,
+              count=1,
+          )
           with open(path, 'w', encoding='utf-8') as f:
-              f.write(new)
+              f.write(xml)
           PY
-          fi
           echo '--- AndroidManifest.xml (release) ---'
           cat "$MANIFEST"
 

@@ -102,7 +102,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final hasKey = _apiKey != null && _apiKey!.isNotEmpty;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('AI Chess Arena'),
+        title: const Text('Chess Arena'),
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),

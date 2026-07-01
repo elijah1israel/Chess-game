@@ -1,4 +1,4 @@
-# AI Chess Arena
+# Chess Arena
 
 A Flutter Android app that lets you pick two OpenRouter AI models and watch
 them play chess against each other.

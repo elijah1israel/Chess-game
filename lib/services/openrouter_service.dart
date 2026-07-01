@@ -24,7 +24,7 @@ class OpenRouterService {
         'Authorization': 'Bearer $apiKey',
         'Content-Type': 'application/json',
         'HTTP-Referer': 'https://github.com/elijah1israel/chess-game',
-        'X-Title': 'AI Chess Arena',
+        'X-Title': 'Chess Arena',
       };
 
   Future<List<AiModel>> listModels() async {

@@ -50,15 +50,26 @@ class ChessAiPlayer {
       (i) => '${sanMoves[i]} (${uciMoves[i]})',
     ).join(', ');
 
-    final systemPrompt =
-        'You are a chess engine. Reply with EXACTLY ONE move and nothing else. '
-        'No commentary, no punctuation beyond the move itself. Prefer UCI notation like e2e4 or g1f3, '
-        'or SAN like Nf3. The move MUST be one of the legal moves provided.';
+    final history = _formatHistory(game);
+    final inCheck = game.in_check ? ' You are in CHECK.' : '';
 
-    final userPrompt = 'You play $sideToMove.\n'
-        'Position (FEN): $fen\n'
-        'Legal moves: $legalList\n'
-        'Reply with one legal move.';
+    const systemPrompt =
+        'You are a strong chess player and you play to WIN. Follow these rules:\n'
+        '1. Look for checks, captures, and threats before quiet moves.\n'
+        '2. Do NOT repeat positions or shuffle pieces back and forth — that leads to draws you can avoid.\n'
+        '3. Weigh king safety, piece activity, and pawn structure.\n'
+        '4. You may think briefly, but end your reply with a single final line:\n'
+        '   MOVE: <move>\n'
+        '   where <move> is one of the legal moves in UCI (e2e4, g1f3, e7e8q) or SAN (Nf3, Qxh7#) form.\n'
+        '   The line starting with MOVE: is the ONLY thing I will parse.';
+
+    final userPrompt = 'You play $sideToMove.$inCheck\n'
+        'Move history so far: $history\n'
+        'Current position (FEN): $fen\n'
+        'Legal moves: $legalList\n\n'
+        'Briefly evaluate the position (2–4 short lines), then output your chosen move on a final '
+        '"MOVE: <move>" line. Choose the strongest move you can find; do not settle for a draw '
+        'when winning chances exist.';
 
     String raw = '';
     ch.Move? picked;
@@ -69,8 +80,8 @@ class ChessAiPlayer {
           {'role': 'system', 'content': systemPrompt},
           {'role': 'user', 'content': userPrompt},
         ],
-        temperature: attempt == 0 ? 0.2 : 0.0,
-        maxTokens: 16,
+        temperature: attempt == 0 ? 0.4 : 0.1,
+        maxTokens: 400,
       );
       picked = _parseMove(raw, bySan: bySan, byUci: byUci);
     }
@@ -122,16 +133,45 @@ class ChessAiPlayer {
     }
   }
 
+  /// Renders the game so far as "1. e4 e5 2. Nf3 Nc6 ..." for the prompt.
+  /// Caps at the last 40 plies so the prompt doesn't get gigantic.
+  static String _formatHistory(ch.Chess game) {
+    final history = List<String>.from(game.getHistory() as Iterable);
+    if (history.isEmpty) return '(no moves yet — opening position)';
+    final tail = history.length > 40
+        ? history.sublist(history.length - 40)
+        : history;
+    final leadingPly = history.length - tail.length;
+    final buf = StringBuffer();
+    for (var i = 0; i < tail.length; i++) {
+      final ply = leadingPly + i;
+      if (ply.isEven) {
+        if (buf.isNotEmpty) buf.write(' ');
+        buf.write('${(ply ~/ 2) + 1}.');
+      }
+      buf.write(' ${tail[i]}');
+    }
+    return buf.toString();
+  }
+
   static ch.Move? _parseMove(
     String raw, {
     required Map<String, ch.Move> bySan,
     required Map<String, ch.Move> byUci,
   }) {
     if (raw.isEmpty) return null;
-    final text = raw.trim().replaceAll(RegExp(r'[`*_]'), '');
+    final cleaned = raw.replaceAll(RegExp(r'[`*_]'), '');
+
+    // Prefer the last "MOVE: ..." line, since the prompt tells the model to
+    // put its final choice there after any reasoning.
+    final moveLine = RegExp(
+      r'MOVE\s*[:\-]\s*([^\n\r]+)',
+      caseSensitive: false,
+    ).allMatches(cleaned).lastOrNull;
+    final scanText = moveLine != null ? moveLine.group(1)! : cleaned.trim();
 
     // Try each whitespace-separated token
-    for (final tokenRaw in text.split(RegExp(r'\s+'))) {
+    for (final tokenRaw in scanText.split(RegExp(r'\s+'))) {
       final token = tokenRaw.replaceAll(RegExp("[.,;:!?\"']+\$"), '').trim();
       if (token.isEmpty) continue;
 
